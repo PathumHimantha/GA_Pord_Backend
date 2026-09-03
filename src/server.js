@@ -39,7 +39,7 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/report", reportRoutes);
-// Health check with DB connection status
+// Health check with DB connection status s
 app.get("/health", async (req, res) => {
   try {
     await pool.query("SELECT 1");
