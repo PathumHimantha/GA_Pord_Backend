@@ -458,7 +458,8 @@ router.delete("/clear/:nic", async (req, res) => {
     });
   }
 });
-// GET - Get cart items with customer details by NIC
+// GET - Get cart items with customer details by NIC New
+
 // GET - Get all cart items for a specific user (created_by)
 router.get("/user/:userId", async (req, res) => {
   try {
