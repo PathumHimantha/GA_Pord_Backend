@@ -41,7 +41,26 @@ jobs:
           script: |
             cd /var/www/Prod/Backend
 
+            echo "Remote PATH: $PATH"
+            which node || echo "node not found"
+            which npm || echo "npm not found"
+            which pm2 || echo "pm2 not found"
+            node -v || true
+            npm -v || true
+
+            if [ ! -x "$(command -v npm)" ]; then
+              echo "npm not found — please install Node.js and npm on the server. Example:"
+              echo "  curl -fsSL https://deb.nodesource.com/setup_20.x | sudo -E bash -"
+              echo "  sudo apt-get install -y nodejs"
+              exit 1
+            fi
+
             npm ci --omit=dev
+
+            if [ -x "$(command -v npm)" ] && [ ! -x "$(command -v pm2)" ]; then
+              echo "pm2 not found. Installing pm2 globally..."
+              npm install -g pm2 || true
+            fi
 
             pm2 restart golden-asia-backend || pm2 start src/server.js --name golden-asia-backend
 
