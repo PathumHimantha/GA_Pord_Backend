@@ -2,11 +2,11 @@ const mysql = require("mysql2");
 
 // New Database (Products DB)
 const pool = mysql.createPool({
-  host: process.env.DB_HOST || "localhost",
+  host: process.env.DB_HOST || "194.163.182.128",
   port: parseInt(process.env.DB_PORT) || 3306,
-  user: process.env.DB_USER || "root",
-  password: process.env.DB_PASSWORD || "",
-  database: process.env.DB_NAME || "micro",
+  user: process.env.DB_USER || "products_user",
+  password: process.env.DB_PASSWORD || "Golden@123@99",
+  database: process.env.DB_NAME || "products",
   waitForConnections: process.env.DB_WAIT_FOR_CONNECTIONS === "true",
   connectionLimit: parseInt(process.env.DB_CONNECTION_LIMIT) || 10,
   queueLimit: parseInt(process.env.DB_QUEUE_LIMIT) || 0,
