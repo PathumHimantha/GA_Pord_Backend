@@ -13,6 +13,20 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      - name: Debug: show workspace files
+        run: |
+          echo "CWD: $(pwd)"
+          echo "Listing repository root:" 
+          ls -la
+          echo "Checking for package.json..."
+          if [ -f package.json ]; then
+            echo "package.json found"
+            echo "--- package.json (first 50 lines) ---"
+            sed -n '1,50p' package.json
+          else
+            echo "package.json NOT found in $(pwd)"
+          fi
+
       - name: Setup Node.js
         uses: actions/setup-node@v4
         with:
@@ -20,7 +34,14 @@ jobs:
           cache: npm
 
       - name: Install dependencies
-        run: npm ci
+        run: |
+          if [ -f package.json ]; then
+            npm ci
+          else
+            echo "Error: package.json not found in $(pwd). Aborting npm ci."
+            ls -la
+            exit 1
+          fi
 
       - name: Deploy backend to Contabo
         uses: appleboy/scp-action@v1
