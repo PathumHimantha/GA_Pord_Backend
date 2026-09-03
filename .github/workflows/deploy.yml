@@ -13,7 +13,7 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
-      - name: Debug: show workspace files
+      - name: "Debug: show workspace files"
         run: |
           echo "CWD: $(pwd)"
           echo "Listing repository root:" 
