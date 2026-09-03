@@ -1,0 +1,48 @@
+name: Deploy Backend to Contabo
+
+on:
+  push:
+    branches:
+      - main
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Deploy backend to Contabo
+        uses: appleboy/scp-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          source: "src,Package.json,package-lock.json"
+          target: "/var/www/Prod/Backend"
+          overwrite: true
+
+      - name: Restart backend with PM2
+        uses: appleboy/ssh-action@v1
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USER }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            cd /var/www/Prod/Backend
+
+            npm ci --omit=dev
+
+            pm2 restart golden-asia-backend || pm2 start src/server.js --name golden-asia-backend
+
+            pm2 save
