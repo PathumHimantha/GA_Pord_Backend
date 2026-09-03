@@ -22,7 +22,7 @@ const oldDbPool = mysql.createPool({
   host: process.env.OLD_DB_HOST || "57.128.195.112",
   port: parseInt(process.env.OLD_DB_PORT) || 3306,
   user: process.env.OLD_DB_USER || "micro_user",
-  password: process.env.OLD_DB_PASSWORD || "Golden@12",
+  password: process.env.OLD_DB_PASSWORD || "Golden@123@99",
   database: process.env.OLD_DB_NAME || "micro",
   waitForConnections: true,
   connectionLimit: 5,
