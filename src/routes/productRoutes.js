@@ -190,20 +190,17 @@ router.put("/requests/:id", async (req, res) => {
             [newStock, request.product_id],
           );
 
-          // 3. Log stock change in product_stock table
           await connection.query(
             `INSERT INTO product_stock 
-             (product_id, product_name, stock, previous_stock, change_type, change_reason, quantity_changed, created_by, created_at, updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
+             (product_id, product_name, stock, previous_stock, change_type, change_reason, created_at,updated_at) 
+             VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
               request.product_id,
               product.name,
               newStock,
               currentStock,
-              "request_fulfilled",
-              `Fulfilled product request #${id} - Quantity: ${requestQuantity}`,
-              requestQuantity,
-              user_id || null,
+              "add",
+              `Fulfilled product request #${id}`,
             ],
           );
 
