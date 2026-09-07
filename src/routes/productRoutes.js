@@ -813,7 +813,8 @@ router.get("/stock-transactions", async (req, res) => {
 // POST - Request a product (when out of stock)
 router.post("/request", async (req, res) => {
   try {
-    const { product_id, requested_by, requested_by_id, notes } = req.body;
+    const { product_id, requested_by, requested_by_id, notes, quantity } =
+      req.body;
 
     if (!product_id || !requested_by || !requested_by_id) {
       return res.status(400).json({
@@ -836,10 +837,44 @@ router.post("/request", async (req, res) => {
     }
 
     const product = productResult[0];
+    const requestQuantity = quantity || 1;
 
-    // REMOVED: Check for existing pending request
+    // Check if there's already a pending request for this product by this user
+    const existingRequest = await executeWithRetry(
+      `SELECT id, status, quantity FROM product_requests 
+       WHERE product_id = ? AND requested_by_id = ? AND status = 'pending'`,
+      [product_id, requested_by_id],
+    );
 
-    // Create the request
+    if (existingRequest && existingRequest.length > 0) {
+      // OPTION A: Update the existing request with new quantity
+      const currentRequest = existingRequest[0];
+      const newQuantity = currentRequest.quantity + requestQuantity;
+
+      await executeWithRetry(
+        `UPDATE product_requests 
+         SET quantity = ?, 
+             notes = CONCAT(COALESCE(notes, ''), ' | Updated to quantity: ', ?),
+             updated_at = NOW()
+         WHERE id = ?`,
+        [newQuantity, newQuantity, currentRequest.id],
+      );
+
+      return res.json({
+        success: true,
+        message: `Request quantity updated to ${newQuantity}`,
+        data: {
+          id: currentRequest.id,
+          product_id,
+          product_name: product.name,
+          requested_by,
+          requested_by_id,
+          quantity: newQuantity,
+        },
+      });
+    }
+
+    // Create new request
     const result = await executeWithRetry(
       `INSERT INTO product_requests 
        (product_id, product_name, product_code, price, requested_by, requested_by_id, notes, quantity) 
@@ -852,7 +887,7 @@ router.post("/request", async (req, res) => {
         requested_by,
         requested_by_id,
         notes || null,
-        1, // Default quantity
+        requestQuantity,
       ],
     );
 
@@ -865,6 +900,7 @@ router.post("/request", async (req, res) => {
         product_name: product.name,
         requested_by,
         requested_by_id,
+        quantity: requestQuantity,
       },
     });
   } catch (error) {
@@ -872,5 +908,4 @@ router.post("/request", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 module.exports = router;
