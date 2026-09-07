@@ -18,6 +18,7 @@ const {
 const path = require("path");
 const fs = require("fs");
 const { uploadDir } = require("../middleware/upload"); // Import uploadDir
+const { pool } = require("../config/database");
 
 // GET all products with pagination and filtering
 router.get("/", async (req, res) => {
@@ -880,52 +881,6 @@ router.post("/request", async (req, res) => {
     });
   } catch (error) {
     console.error("Error creating product request:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
-// in src/routes/productRoutes.js
-router.get("/requests", async (req, res) => {
-  try {
-    const { status, page = 1, limit = 50 } = req.query;
-
-    let query = `SELECT * FROM product_requests`;
-    const params = [];
-
-    if (status) {
-      query += ` WHERE status = ?`;
-      params.push(status);
-    }
-
-    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
-    params.push(parseInt(limit), (parseInt(page) - 1) * parseInt(limit));
-
-    const results = await executeWithRetry(query, params);
-
-    let countQuery = `SELECT COUNT(*) as total FROM product_requests`;
-    if (status) {
-      countQuery += ` WHERE status = ?`;
-    }
-
-    const countResult = await executeWithRetry(
-      countQuery,
-      status ? [status] : [],
-    );
-
-    const total = countResult[0]?.total || 0;
-
-    res.json({
-      success: true,
-      data: results,
-      pagination: {
-        total,
-        page: parseInt(page),
-        limit: parseInt(limit),
-        totalPages: Math.ceil(total / parseInt(limit)),
-      },
-    });
-  } catch (error) {
-    console.error("Error fetching product requests:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
