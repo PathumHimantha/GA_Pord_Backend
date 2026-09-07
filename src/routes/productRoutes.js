@@ -134,9 +134,9 @@ router.put("/requests/:id", async (req, res) => {
       });
     }
 
-    // Get the request first to check current status
+    // Get the request first to check current status AND get quantity
     const currentRequest = await executeWithRetry(
-      `SELECT id, product_id, product_name, status FROM product_requests WHERE id = ?`,
+      `SELECT id, product_id, product_name, status, quantity FROM product_requests WHERE id = ?`,
       [id],
     );
 
@@ -150,12 +150,16 @@ router.put("/requests/:id", async (req, res) => {
     }
 
     const request = currentRequest[0];
+    const requestQuantity = parseInt(request.quantity) || 1; // Default to 1 if no quantity
     console.log(`📦 Request status: ${request.status}, New status: ${status}`);
+    console.log(`📦 Request quantity: ${requestQuantity}`);
 
     // If status is being changed to 'fulfilled'
     if (status === "fulfilled" && request.status !== "fulfilled") {
       try {
-        console.log(`📦 Fulfilling request #${id} - Updating stock...`);
+        console.log(
+          `📦 Fulfilling request #${id} - Updating stock by ${requestQuantity} unit(s)...`,
+        );
 
         // Start transaction
         const connection = await pool.getConnection();
@@ -174,10 +178,10 @@ router.put("/requests/:id", async (req, res) => {
 
           const product = productResult[0];
           const currentStock = parseInt(product.stock) || 0;
-          const newStock = currentStock + 1; // Add 1 unit
+          const newStock = currentStock + requestQuantity; // Add the requested quantity
 
           console.log(
-            `📊 Product: ${product.name}, Current stock: ${currentStock}, New stock: ${newStock}`,
+            `📊 Product: ${product.name}, Current stock: ${currentStock}, Adding: ${requestQuantity}, New stock: ${newStock}`,
           );
 
           // 2. Update product stock
@@ -186,7 +190,6 @@ router.put("/requests/:id", async (req, res) => {
             [newStock, request.product_id],
           );
 
-          // 3. Log stock change in product_stock table
           await connection.query(
             `INSERT INTO product_stock 
              (product_id, product_name, stock, previous_stock, change_type, change_reason, created_at,updated_at) 
@@ -211,7 +214,7 @@ router.put("/requests/:id", async (req, res) => {
             [
               status,
               notes ||
-                `Request fulfilled. Stock updated from ${currentStock} to ${newStock}`,
+                `Request fulfilled. Stock updated from ${currentStock} to ${newStock} (Added ${requestQuantity} unit(s))`,
               id,
             ],
           );
@@ -219,7 +222,7 @@ router.put("/requests/:id", async (req, res) => {
           // Commit transaction
           await connection.commit();
           console.log(
-            `✅ Request #${id} fulfilled successfully. Stock updated to ${newStock}`,
+            `✅ Request #${id} fulfilled successfully. Stock updated from ${currentStock} to ${newStock} (Added ${requestQuantity} unit(s))`,
           );
 
           res.json({
@@ -233,6 +236,7 @@ router.put("/requests/:id", async (req, res) => {
                 productName: product.name,
                 previousStock: currentStock,
                 newStock: newStock,
+                quantityAdded: requestQuantity,
               },
             },
           });
