@@ -190,7 +190,7 @@ router.put("/requests/:id", async (req, res) => {
           await connection.query(
             `INSERT INTO product_stock 
              (product_id, product_name, stock, previous_stock, change_type, change_reason, created_at,updated_at) 
-             VALUES (?, ?, ?, ?, ?, ?, ?, NOW()), NOW())`,
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW(), NOW())`,
             [
               request.product_id,
               product.name,
