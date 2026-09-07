@@ -124,7 +124,41 @@ app.listen(PORT, () => {
     console.error("❌ Failed to initialize scheduler:", error);
   }
 });
+// Security middleware to block suspicious requests
+app.use((req, res, next) => {
+  const suspiciousPaths = [
+    ".env",
+    ".git",
+    "config.",
+    "wp-",
+    "phpinfo",
+    "server-status",
+    "actuator",
+    "graphql",
+    "swagger",
+    "openapi",
+    "admin",
+    "login",
+    "phpmyadmin",
+  ];
 
+  // Check if request path contains any suspicious strings
+  const isSuspicious = suspiciousPaths.some((path) =>
+    req.path.toLowerCase().includes(path),
+  );
+
+  if (isSuspicious) {
+    console.log(
+      `🚫 Blocked suspicious request: ${req.method} ${req.path} from ${req.ip}`,
+    );
+    return res.status(404).json({
+      success: false,
+      error: "Not found",
+    });
+  }
+
+  next();
+});
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.log("Closing database pool...");
