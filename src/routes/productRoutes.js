@@ -679,8 +679,6 @@ router.post("/request", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
-// in src/routes/productRoutes.js
 router.get("/requests", async (req, res) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
@@ -707,7 +705,6 @@ router.get("/requests", async (req, res) => {
       countQuery,
       status ? [status] : [],
     );
-
     const total = countResult[0]?.total || 0;
 
     res.json({
@@ -730,9 +727,14 @@ router.put("/requests/:id", async (req, res) => {
     const { id } = req.params;
     const { status, notes, user_id } = req.body;
 
-    console.log(`📝 Update product request ID: ${id}, Status: ${status}`);
+    console.log(`📝 ====== UPDATE REQUEST ======`);
+    console.log(`📝 Request ID: ${id}`);
+    console.log(`📝 New Status: ${status}`);
+    console.log(`📝 Notes: ${notes || "No notes"}`);
+    console.log(`📝 User ID: ${user_id || "Not provided"}`);
 
     if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
+      console.log(`❌ Invalid status: ${status}`);
       return res.status(400).json({
         success: false,
         error: "Invalid status",
@@ -745,9 +747,10 @@ router.put("/requests/:id", async (req, res) => {
       [id],
     );
 
-    console.log(`📦 Found request:`, currentRequest);
+    console.log(`📦 Current request data:`, currentRequest);
 
     if (!currentRequest || currentRequest.length === 0) {
+      console.log(`❌ Request not found for ID: ${id}`);
       return res.status(404).json({
         success: false,
         error: "Request not found",
@@ -755,19 +758,22 @@ router.put("/requests/:id", async (req, res) => {
     }
 
     const request = currentRequest[0];
-    console.log(`📦 Request status: ${request.status}, New status: ${status}`);
+    console.log(`📦 Current status: ${request.status}, Target: ${status}`);
 
     // If status is being changed to 'fulfilled'
     if (status === "fulfilled" && request.status !== "fulfilled") {
-      try {
-        console.log(`📦 Fulfilling request #${id} - Updating stock...`);
+      console.log(`🔄 Fulfilling request - updating stock...`);
 
+      try {
         // Start transaction
         const connection = await pool.getConnection();
         await connection.beginTransaction();
 
         try {
           // 1. Get current stock
+          console.log(
+            `🔍 Getting current stock for product ID: ${request.product_id}`,
+          );
           const [productResult] = await connection.query(
             "SELECT id, product_id, name, stock FROM products WHERE id = ? FOR UPDATE",
             [request.product_id],
@@ -781,15 +787,16 @@ router.put("/requests/:id", async (req, res) => {
           const currentStock = parseInt(product.stock) || 0;
           const newStock = currentStock + 1; // Add 1 unit
 
-          console.log(
-            `📊 Product: ${product.name}, Current stock: ${currentStock}, New stock: ${newStock}`,
-          );
+          console.log(`📊 Product: ${product.name}`);
+          console.log(`📊 Current stock: ${currentStock}`);
+          console.log(`📊 New stock: ${newStock}`);
 
           // 2. Update product stock
           await connection.query(
             "UPDATE products SET stock = ?, updated_at = NOW() WHERE id = ?",
             [newStock, request.product_id],
           );
+          console.log(`✅ Product stock updated`);
 
           // 3. Log stock change in product_stock table
           await connection.query(
@@ -806,6 +813,7 @@ router.put("/requests/:id", async (req, res) => {
               user_id || null,
             ],
           );
+          console.log(`✅ Stock history logged`);
 
           // 4. Update the request status
           await connection.query(
@@ -821,12 +829,12 @@ router.put("/requests/:id", async (req, res) => {
               id,
             ],
           );
+          console.log(`✅ Request status updated to fulfilled`);
 
           // Commit transaction
           await connection.commit();
-          console.log(
-            `✅ Request #${id} fulfilled successfully. Stock updated to ${newStock}`,
-          );
+          console.log(`✅ Transaction committed successfully`);
+          console.log(`✅ Request #${id} fulfilled successfully`);
 
           res.json({
             success: true,
@@ -844,6 +852,7 @@ router.put("/requests/:id", async (req, res) => {
           });
         } catch (error) {
           await connection.rollback();
+          console.error(`❌ Transaction error, rolled back:`, error);
           throw error;
         } finally {
           connection.release();
@@ -859,7 +868,10 @@ router.put("/requests/:id", async (req, res) => {
       }
     } else {
       // For other status updates (approve, reject, etc.)
-      console.log(`📝 Updating request #${id} status to: ${status}`);
+      console.log(
+        `📝 Updating request #${id} status to: ${status} (no stock change)`,
+      );
+
       await executeWithRetry(
         `UPDATE product_requests 
          SET status = ?, 
@@ -868,6 +880,8 @@ router.put("/requests/:id", async (req, res) => {
          WHERE id = ?`,
         [status, notes || `Status updated to ${status}`, id],
       );
+
+      console.log(`✅ Request #${id} updated to ${status}`);
 
       res.json({
         success: true,
