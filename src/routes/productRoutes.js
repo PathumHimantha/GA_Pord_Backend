@@ -803,18 +803,22 @@ router.put("/requests/:id", async (req, res) => {
     const { id } = req.params;
     const { status, notes, user_id } = req.body;
 
+    console.log(`📝 Update product request ID: ${id}, Status: ${status}`);
+
     if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
       return res.status(400).json({
         success: false,
         error: "Invalid status",
       });
     }
-    console.log(`update product request ID: ${id}`);
+
     // Get the request first to check current status
     const currentRequest = await executeWithRetry(
       `SELECT id, product_id, product_name, status FROM product_requests WHERE id = ?`,
       [id],
     );
+
+    console.log(`📦 Found request:`, currentRequest);
 
     if (!currentRequest || currentRequest.length === 0) {
       return res.status(404).json({
@@ -824,42 +828,101 @@ router.put("/requests/:id", async (req, res) => {
     }
 
     const request = currentRequest[0];
+    console.log(`📦 Request status: ${request.status}, New status: ${status}`);
 
     // If status is being changed to 'fulfilled'
-    if (status === "fulfilled") {
+    if (status === "fulfilled" && request.status !== "fulfilled") {
       try {
-        // Update stock using the stock management function
-        const stockResult = await fulfillProductRequest(
-          parseInt(id),
-          user_id || null,
-        );
+        console.log(`📦 Fulfilling request #${id} - Updating stock...`);
 
-        // Update the request status
-        await executeWithRetry(
-          `UPDATE product_requests 
-           SET status = ?, 
-               notes = CONCAT(COALESCE(notes, ''), ' | ', ?),
-               updated_at = NOW() 
-           WHERE id = ?`,
-          [
-            status,
-            notes ||
-              `Request fulfilled. Stock updated from ${stockResult.previousStock} to ${stockResult.newStock}`,
-            id,
-          ],
-        );
+        // Start transaction
+        const connection = await pool.getConnection();
+        await connection.beginTransaction();
 
-        res.json({
-          success: true,
-          message: `Request ${status} successfully and stock updated`,
-          data: {
-            requestId: parseInt(id),
-            newStatus: status,
-            stockUpdate: stockResult,
-          },
-        });
+        try {
+          // 1. Get current stock
+          const [productResult] = await connection.query(
+            "SELECT id, product_id, name, stock FROM products WHERE id = ? FOR UPDATE",
+            [request.product_id],
+          );
+
+          if (!productResult || productResult.length === 0) {
+            throw new Error("Product not found");
+          }
+
+          const product = productResult[0];
+          const currentStock = parseInt(product.stock) || 0;
+          const newStock = currentStock + 1; // Add 1 unit
+
+          console.log(
+            `📊 Product: ${product.name}, Current stock: ${currentStock}, New stock: ${newStock}`,
+          );
+
+          // 2. Update product stock
+          await connection.query(
+            "UPDATE products SET stock = ?, updated_at = NOW() WHERE id = ?",
+            [newStock, request.product_id],
+          );
+
+          // 3. Log stock change in product_stock table
+          await connection.query(
+            `INSERT INTO product_stock 
+             (product_id, product_name, stock, previous_stock, change_type, change_reason, created_by, created_at) 
+             VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+            [
+              request.product_id,
+              product.name,
+              newStock,
+              currentStock,
+              "request_fulfilled",
+              `Fulfilled product request #${id}`,
+              user_id || null,
+            ],
+          );
+
+          // 4. Update the request status
+          await connection.query(
+            `UPDATE product_requests 
+             SET status = ?, 
+                 notes = CONCAT(COALESCE(notes, ''), ' | ', ?),
+                 updated_at = NOW() 
+             WHERE id = ?`,
+            [
+              status,
+              notes ||
+                `Request fulfilled. Stock updated from ${currentStock} to ${newStock}`,
+              id,
+            ],
+          );
+
+          // Commit transaction
+          await connection.commit();
+          console.log(
+            `✅ Request #${id} fulfilled successfully. Stock updated to ${newStock}`,
+          );
+
+          res.json({
+            success: true,
+            message: `Request ${status} successfully and stock updated`,
+            data: {
+              requestId: parseInt(id),
+              newStatus: status,
+              stockUpdate: {
+                productId: request.product_id,
+                productName: product.name,
+                previousStock: currentStock,
+                newStock: newStock,
+              },
+            },
+          });
+        } catch (error) {
+          await connection.rollback();
+          throw error;
+        } finally {
+          connection.release();
+        }
       } catch (stockError) {
-        console.error("Stock update error:", stockError);
+        console.error("❌ Stock update error:", stockError);
         return res.status(400).json({
           success: false,
           error:
@@ -869,6 +932,7 @@ router.put("/requests/:id", async (req, res) => {
       }
     } else {
       // For other status updates (approve, reject, etc.)
+      console.log(`📝 Updating request #${id} status to: ${status}`);
       await executeWithRetry(
         `UPDATE product_requests 
          SET status = ?, 
@@ -888,11 +952,10 @@ router.put("/requests/:id", async (req, res) => {
       });
     }
   } catch (error) {
-    console.error("Error updating product request:", error);
+    console.error("❌ Error updating product request:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 async function updateProductStock(
   productId,
   quantity,
