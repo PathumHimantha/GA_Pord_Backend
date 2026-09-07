@@ -680,7 +680,6 @@ router.post("/request", async (req, res) => {
   }
 });
 
-// GET - Get all product requests (for admin view)
 router.get("/requests", async (req, res) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
@@ -724,7 +723,6 @@ router.get("/requests", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 // PUT - Update request status (admin)
 router.put("/requests/:id", async (req, res) => {
   try {
