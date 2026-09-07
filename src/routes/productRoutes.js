@@ -801,7 +801,7 @@ router.get("/requests", async (req, res) => {
 router.put("/requests/:id", async (req, res) => {
   try {
     const { id } = req.params;
-    const { status, notes } = req.body;
+    const { status, notes, user_id } = req.body;
 
     if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
       return res.status(400).json({
@@ -810,25 +810,235 @@ router.put("/requests/:id", async (req, res) => {
       });
     }
 
-    const result = await executeWithRetry(
-      `UPDATE product_requests SET status = ?, notes = CONCAT(COALESCE(notes, ''), ' | ', ?) WHERE id = ?`,
-      [status, notes || `Status updated to ${status}`, id],
+    // Get the request first to check current status
+    const currentRequest = await executeWithRetry(
+      `SELECT id, product_id, product_name, status FROM product_requests WHERE id = ?`,
+      [id],
     );
 
-    if (result.affectedRows === 0) {
+    if (!currentRequest || currentRequest.length === 0) {
       return res.status(404).json({
         success: false,
         error: "Request not found",
       });
     }
 
-    res.json({
-      success: true,
-      message: `Request ${status} successfully`,
-    });
+    const request = currentRequest[0];
+
+    // If status is being changed to 'fulfilled'
+    if (status === "fulfilled" && request.status !== "fulfilled") {
+      try {
+        // Update stock using the stock management function
+        const stockResult = await fulfillProductRequest(
+          parseInt(id),
+          user_id || null,
+        );
+
+        // Update the request status
+        await executeWithRetry(
+          `UPDATE product_requests 
+           SET status = ?, 
+               notes = CONCAT(COALESCE(notes, ''), ' | ', ?),
+               updated_at = NOW() 
+           WHERE id = ?`,
+          [
+            status,
+            notes ||
+              `Request fulfilled. Stock updated from ${stockResult.previousStock} to ${stockResult.newStock}`,
+            id,
+          ],
+        );
+
+        res.json({
+          success: true,
+          message: `Request ${status} successfully and stock updated`,
+          data: {
+            requestId: parseInt(id),
+            newStatus: status,
+            stockUpdate: stockResult,
+          },
+        });
+      } catch (stockError) {
+        console.error("Stock update error:", stockError);
+        return res.status(400).json({
+          success: false,
+          error:
+            stockError.message ||
+            "Failed to update stock for fulfilled request",
+        });
+      }
+    } else {
+      // For other status updates (approve, reject, etc.)
+      await executeWithRetry(
+        `UPDATE product_requests 
+         SET status = ?, 
+             notes = CONCAT(COALESCE(notes, ''), ' | ', ?),
+             updated_at = NOW() 
+         WHERE id = ?`,
+        [status, notes || `Status updated to ${status}`, id],
+      );
+
+      res.json({
+        success: true,
+        message: `Request ${status} successfully`,
+        data: {
+          requestId: parseInt(id),
+          newStatus: status,
+        },
+      });
+    }
   } catch (error) {
     console.error("Error updating product request:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
+
+async function updateProductStock(
+  productId,
+  quantity,
+  changeType,
+  changeReason,
+  userId = null,
+) {
+  try {
+    // Start a transaction
+    const connection = await db.getConnection();
+    await connection.beginTransaction();
+
+    try {
+      // 1. Get current stock
+      const productResult = await connection.query(
+        "SELECT id, product_id, name, stock FROM products WHERE id = ? FOR UPDATE",
+        [productId],
+      );
+
+      if (!productResult || productResult.length === 0) {
+        throw new Error("Product not found");
+      }
+
+      const product = productResult[0];
+      const currentStock = parseInt(product.stock) || 0;
+      const newStock = currentStock + quantity;
+
+      // Prevent negative stock
+      if (newStock < 0) {
+        throw new Error(
+          `Insufficient stock. Current stock: ${currentStock}, Requested: ${Math.abs(quantity)}`,
+        );
+      }
+
+      // 2. Update product stock
+      await connection.query(
+        "UPDATE products SET stock = ?, updated_at = NOW() WHERE id = ?",
+        [newStock, productId],
+      );
+
+      // 3. Log stock change in product_stock table
+      await connection.query(
+        `INSERT INTO product_stock 
+         (product_id, product_name, stock, previous_stock, change_type, change_reason, created_by, created_at) 
+         VALUES (?, ?, ?, ?, ?, ?, ?, NOW())`,
+        [
+          productId,
+          product.name,
+          newStock,
+          currentStock,
+          changeType,
+          changeReason,
+          userId || null,
+        ],
+      );
+
+      // Commit transaction
+      await connection.commit();
+
+      return {
+        success: true,
+        productId,
+        productName: product.name,
+        previousStock: currentStock,
+        newStock,
+        changeType,
+        changeReason,
+      };
+    } catch (error) {
+      // Rollback on error
+      await connection.rollback();
+      throw error;
+    } finally {
+      connection.release();
+    }
+  } catch (error) {
+    console.error("Error updating stock:", error);
+    throw error;
+  }
+}
+async function addProductStock(
+  productId,
+  quantity,
+  changeReason,
+  userId = null,
+) {
+  if (quantity <= 0) {
+    throw new Error("Quantity must be positive");
+  }
+  return await updateProductStock(
+    productId,
+    quantity,
+    "add",
+    changeReason || "Stock added",
+    userId,
+  );
+}
+async function removeProductStock(
+  productId,
+  quantity,
+  changeReason,
+  userId = null,
+) {
+  if (quantity <= 0) {
+    throw new Error("Quantity must be positive");
+  }
+  return await updateProductStock(
+    productId,
+    -quantity,
+    "remove",
+    changeReason || "Stock removed",
+    userId,
+  );
+}
+async function fulfillProductRequest(requestId, userId = null) {
+  try {
+    // Get the request details
+    const requestResult = await executeWithRetry(
+      `SELECT id, product_id, product_name, requested_by_id 
+       FROM product_requests 
+       WHERE id = ? AND status = 'approved'`,
+      [requestId],
+    );
+
+    if (!requestResult || requestResult.length === 0) {
+      throw new Error("Approved request not found");
+    }
+
+    const request = requestResult[0];
+
+    // Add 1 unit of stock (or you can add multiple based on request)
+    const result = await addProductStock(
+      request.product_id,
+      1, // You can change this to add more based on request
+      `Fulfilled product request #${requestId} for ${request.product_name}`,
+      userId || request.requested_by_id,
+    );
+
+    return {
+      success: true,
+      requestId,
+      ...result,
+    };
+  } catch (error) {
+    console.error("Error fulfilling request:", error);
+    throw error;
+  }
+}
 module.exports = router;
