@@ -837,25 +837,13 @@ router.post("/request", async (req, res) => {
 
     const product = productResult[0];
 
-    // Check if there's already a pending request for this product by this user
-    const existingRequest = await executeWithRetry(
-      `SELECT id, status FROM product_requests 
-       WHERE product_id = ? AND requested_by_id = ? AND status = 'pending'`,
-      [product_id, requested_by_id],
-    );
-
-    if (existingRequest && existingRequest.length > 0) {
-      return res.status(400).json({
-        success: false,
-        error: "You already have a pending request for this product",
-      });
-    }
+    // REMOVED: Check for existing pending request
 
     // Create the request
     const result = await executeWithRetry(
       `INSERT INTO product_requests 
-       (product_id, product_name, product_code, price, requested_by, requested_by_id, notes) 
-       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+       (product_id, product_name, product_code, price, requested_by, requested_by_id, notes, quantity) 
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
       [
         product_id,
         product.name,
@@ -864,6 +852,7 @@ router.post("/request", async (req, res) => {
         requested_by,
         requested_by_id,
         notes || null,
+        1, // Default quantity
       ],
     );
 
