@@ -33,25 +33,48 @@ router.get("/", async (req, res) => {
       maxPrice,
       sortBy = "created_at",
       sortOrder = "DESC",
-      bypassCache = false, // Add this
+      bypassCache = false,
     } = req.query;
+
+    console.log(`🔍 ===== PRODUCTS REQUEST =====`);
+    console.log(`🔍 Page: ${page}, Limit: ${limit}`);
+    console.log(`🔍 Bypass Cache: ${bypassCache}`);
+    console.log(`🔍 Search: "${search}"`);
+    console.log(`🔍 Category: "${category}"`);
+    console.log(`🔍 Status: "${status}"`);
 
     // Create cache key
     const cacheKey = `products_${page}_${limit}_${search}_${category}_${status}_${minPrice}_${maxPrice}_${sortBy}_${sortOrder}`;
+    console.log(`🔍 Cache Key: ${cacheKey}`);
+
+    // Check if cache exists
+    const cachedResult = searchCache.get(cacheKey);
+    console.log(`🔍 Cache exists: ${!!cachedResult}`);
 
     // Check cache - skip if bypassCache is true
-    if (!bypassCache) {
-      const cachedResult = searchCache.get(cacheKey);
-      if (cachedResult) {
-        return res.json({
-          success: true,
-          data: cachedResult.data,
-          pagination: cachedResult.pagination,
-          cached: true,
-        });
+    if (!bypassCache && cachedResult) {
+      console.log(
+        `🔍 ✅ USING CACHED DATA (${cachedResult.data.length} items)`,
+      );
+      // Log first product stock from cache
+      if (cachedResult.data.length > 0) {
+        console.log(
+          `🔍 Cached product stock - ID: ${cachedResult.data[0].id}, Stock: ${cachedResult.data[0].stock}`,
+        );
       }
+      return res.json({
+        success: true,
+        data: cachedResult.data,
+        pagination: cachedResult.pagination,
+        cached: true,
+      });
     }
 
+    if (bypassCache) {
+      console.log(`🔍 ⚠️ BYPASSING CACHE - fetching fresh data`);
+    }
+
+    console.log(`🔍 📦 Fetching fresh data from database...`);
     const result = await Product.findAll({
       page,
       limit,
@@ -64,9 +87,19 @@ router.get("/", async (req, res) => {
       sortOrder,
     });
 
+    console.log(`🔍 ✅ Fresh data fetched (${result.data.length} items)`);
+    if (result.data.length > 0) {
+      console.log(
+        `🔍 Fresh product stock - ID: ${result.data[0].id}, Stock: ${result.data[0].stock}`,
+      );
+    }
+
     // Cache results (only if not bypassing)
     if (!bypassCache) {
       searchCache.set(cacheKey, result);
+      console.log(`🔍 💾 Data cached`);
+    } else {
+      console.log(`🔍 ⚠️ Data NOT cached (bypassCache=true)`);
     }
 
     res.json({
@@ -75,7 +108,7 @@ router.get("/", async (req, res) => {
       pagination: result.pagination,
     });
   } catch (error) {
-    console.error("Error fetching products:", error);
+    console.error("❌ Error fetching products:", error);
     res.status(500).json({ success: false, error: error.message });
   }
 });
