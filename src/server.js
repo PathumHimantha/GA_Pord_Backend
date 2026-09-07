@@ -30,6 +30,24 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
+// Request/response logging for terminal visibility
+app.use((req, res, next) => {
+  const start = Date.now();
+
+  console.log(
+    `[${new Date().toISOString()}] Incoming: ${req.method} ${req.originalUrl}`,
+  );
+
+  res.on("finish", () => {
+    const duration = Date.now() - start;
+    console.log(
+      `[${new Date().toISOString()}] Response: ${req.method} ${req.originalUrl} -> ${res.statusCode} (${duration}ms)`,
+    );
+  });
+
+  next();
+});
+
 // Serve static files (uploaded images)
 app.use("/api/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -67,7 +85,10 @@ app.use((req, res) => {
 
 // Error handler
 app.use((err, req, res, next) => {
-  console.error("Server Error:", err.stack);
+  console.error(
+    `[${new Date().toISOString()}] Server Error: ${req.method} ${req.originalUrl}`,
+  );
+  console.error(err && err.stack ? err.stack : err);
 
   if (err.code === "LIMIT_FILE_SIZE") {
     return res.status(400).json({
