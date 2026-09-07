@@ -33,20 +33,23 @@ router.get("/", async (req, res) => {
       maxPrice,
       sortBy = "created_at",
       sortOrder = "DESC",
+      bypassCache = false, // Add this
     } = req.query;
 
     // Create cache key
     const cacheKey = `products_${page}_${limit}_${search}_${category}_${status}_${minPrice}_${maxPrice}_${sortBy}_${sortOrder}`;
 
-    // Check cache
-    const cachedResult = searchCache.get(cacheKey);
-    if (cachedResult) {
-      return res.json({
-        success: true,
-        data: cachedResult.data,
-        pagination: cachedResult.pagination,
-        cached: true,
-      });
+    // Check cache - skip if bypassCache is true
+    if (!bypassCache) {
+      const cachedResult = searchCache.get(cacheKey);
+      if (cachedResult) {
+        return res.json({
+          success: true,
+          data: cachedResult.data,
+          pagination: cachedResult.pagination,
+          cached: true,
+        });
+      }
     }
 
     const result = await Product.findAll({
@@ -61,8 +64,10 @@ router.get("/", async (req, res) => {
       sortOrder,
     });
 
-    // Cache results
-    searchCache.set(cacheKey, result);
+    // Cache results (only if not bypassing)
+    if (!bypassCache) {
+      searchCache.set(cacheKey, result);
+    }
 
     res.json({
       success: true,
@@ -74,7 +79,6 @@ router.get("/", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-
 // Product request routes must be defined before /:id, otherwise "requests" is treated as a product ID
 router.get("/requests", async (req, res) => {
   try {
