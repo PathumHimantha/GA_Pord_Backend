@@ -826,7 +826,7 @@ router.put("/requests/:id", async (req, res) => {
     const request = currentRequest[0];
 
     // If status is being changed to 'fulfilled'
-    if (status === "fulfilled" && request.status !== "fulfilled") {
+    if (status === "fulfilled") {
       try {
         // Update stock using the stock management function
         const stockResult = await fulfillProductRequest(
@@ -1010,6 +1010,7 @@ async function removeProductStock(
 async function fulfillProductRequest(requestId, userId = null) {
   try {
     // Get the request details
+    console.log(`Fulfilling product request ID: ${requestId}`);
     const requestResult = await executeWithRetry(
       `SELECT id, product_id, product_name, requested_by_id 
        FROM product_requests 
