@@ -74,6 +74,79 @@ router.get("/", async (req, res) => {
   }
 });
 
+// Product request routes must be defined before /:id, otherwise "requests" is treated as a product ID
+router.get("/requests", async (req, res) => {
+  try {
+    const { status, page = 1, limit = 50 } = req.query;
+
+    let query = `SELECT * FROM product_requests`;
+    const params = [];
+
+    if (status) {
+      query += ` WHERE status = ?`;
+      params.push(status);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), (parseInt(page) - 1) * parseInt(limit));
+
+    const results = await executeWithRetry(query, params);
+
+    let countQuery = `SELECT COUNT(*) as total FROM product_requests`;
+    if (status) {
+      countQuery += ` WHERE status = ?`;
+    }
+
+    const countResult = await executeWithRetry(
+      countQuery,
+      status ? [status] : [],
+    );
+    const total = countResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: results,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching product requests:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT - Update request status (admin)
+router.put("/requests/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status",
+      });
+    }
+
+    await executeWithRetry(
+      `UPDATE product_requests SET status = ?, notes = CONCAT(COALESCE(notes, ''), ' | ', ?) WHERE id = ?`,
+      [status, notes || `Status updated to ${status}`, id],
+    );
+
+    res.json({
+      success: true,
+      message: `Request ${status} successfully`,
+    });
+  } catch (error) {
+    console.error("Error updating product request:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 // GET single product by ID
 router.get("/:id", async (req, res) => {
   try {
@@ -680,6 +753,7 @@ router.post("/request", async (req, res) => {
   }
 });
 
+// in src/routes/productRoutes.js
 router.get("/requests", async (req, res) => {
   try {
     const { status, page = 1, limit = 50 } = req.query;
@@ -697,15 +771,16 @@ router.get("/requests", async (req, res) => {
 
     const results = await executeWithRetry(query, params);
 
-    // Get total count
     let countQuery = `SELECT COUNT(*) as total FROM product_requests`;
     if (status) {
       countQuery += ` WHERE status = ?`;
     }
+
     const countResult = await executeWithRetry(
       countQuery,
       status ? [status] : [],
     );
+
     const total = countResult[0]?.total || 0;
 
     res.json({
@@ -723,32 +798,4 @@ router.get("/requests", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
-// PUT - Update request status (admin)
-router.put("/requests/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-    const { status, notes } = req.body;
-
-    if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
-      return res.status(400).json({
-        success: false,
-        error: "Invalid status",
-      });
-    }
-
-    await executeWithRetry(
-      `UPDATE product_requests SET status = ?, notes = CONCAT(COALESCE(notes, ''), ' | ', ?) WHERE id = ?`,
-      [status, notes || `Status updated to ${status}`, id],
-    );
-
-    res.json({
-      success: true,
-      message: `Request ${status} successfully`,
-    });
-  } catch (error) {
-    console.error("Error updating product request:", error);
-    res.status(500).json({ success: false, error: error.message });
-  }
-});
-
 module.exports = router;
