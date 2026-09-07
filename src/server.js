@@ -19,33 +19,51 @@ const { initScheduler, getNextRunTime } = require("./scheduler");
 
 // Block suspicious requests BEFORE anything else
 app.use((req, res, next) => {
-  const suspiciousPaths = [
-    ".env",
-    ".git",
-    "config.",
-    "wp-",
-    "phpinfo",
-    "server-status",
-    "actuator",
-    "graphql",
-    "swagger",
-    "openapi",
-    "admin",
-    "login",
-    "phpmyadmin",
-    ".ds_store",
-    ".htaccess",
-    ".htpasswd",
-    "robots.txt",
-    "sitemap.xml",
+  const pathLower = req.path.toLowerCase();
+
+  // List of blocked patterns - only block exact matches or specific patterns
+  const blockedPatterns = [
+    { pattern: "/.env", exact: true },
+    { pattern: "/.env.production", exact: true },
+    { pattern: "/.env.local", exact: true },
+    { pattern: "/.env.bak", exact: true },
+    { pattern: "/.env.example", exact: true },
+    { pattern: "/.git/config", exact: true },
+    { pattern: "/.git/HEAD", exact: true },
+    { pattern: "/config.json", exact: true },
+    { pattern: "/config.yml", exact: true },
+    { pattern: "/config.yaml", exact: true },
+    { pattern: "/config.php", exact: true },
+    { pattern: "/config.js", exact: true },
+    { pattern: "/wp-login.php", exact: true },
+    { pattern: "/phpinfo.php", exact: true },
+    { pattern: "/server-status", exact: true },
+    { pattern: "/actuator/health", exact: true },
+    { pattern: "/actuator/env", exact: true },
+    { pattern: "/actuator/configprops", exact: true },
+    { pattern: "/graphql", exact: true },
+    { pattern: "/graphiql", exact: true },
+    { pattern: "/swagger.json", exact: true },
+    { pattern: "/swagger/v1/swagger.json", exact: true },
+    { pattern: "/openapi.json", exact: true },
+    { pattern: "/api-docs", exact: true },
+    { pattern: "/.DS_Store", exact: true },
+    { pattern: "/robots.txt", exact: true },
+    { pattern: "/sitemap.xml", exact: true },
+    { pattern: "/admin", exact: true },
+    { pattern: "/login", exact: true },
+    { pattern: "/phpmyadmin", exact: true },
   ];
 
-  // Check if request path contains any suspicious strings
-  const isSuspicious = suspiciousPaths.some((path) =>
-    req.path.toLowerCase().includes(path),
-  );
+  // Check if the path exactly matches any blocked pattern
+  const isBlocked = blockedPatterns.some((item) => {
+    if (item.exact) {
+      return pathLower === item.pattern;
+    }
+    return pathLower.includes(item.pattern);
+  });
 
-  if (isSuspicious) {
+  if (isBlocked) {
     console.log(
       `🚫 Blocked suspicious request: ${req.method} ${req.path} from ${req.ip}`,
     );
@@ -59,7 +77,7 @@ app.use((req, res, next) => {
 });
 
 // ============================================================
-// CORS - Must come after security but before routes
+// CORS
 // ============================================================
 
 app.use(
@@ -76,7 +94,7 @@ app.use(
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true, limit: "10mb" }));
 
-// Request/response logging for terminal visibility
+// Request/response logging
 app.use((req, res, next) => {
   const start = Date.now();
 
@@ -168,14 +186,12 @@ app.use((err, req, res, next) => {
 // Start Server
 // ============================================================
 
-// Initialize Scheduler AFTER server is ready
 let schedulerJob = null;
 
 app.listen(PORT, () => {
   console.log(`Server running on http://localhost:${PORT}`);
   console.log(`Static files served from: http://localhost:${PORT}/uploads`);
 
-  // Initialize the scheduler when server starts
   try {
     schedulerJob = initScheduler();
     const nextRun = getNextRunTime();
@@ -193,7 +209,6 @@ process.on("SIGINT", async () => {
   await pool.end();
   console.log("Database pool closed");
 
-  // Stop the scheduler
   if (schedulerJob) {
     schedulerJob.stop();
     console.log("Scheduler stopped");
