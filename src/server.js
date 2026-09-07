@@ -12,10 +12,56 @@ const reportRoutes = require("./routes/reportRoutes");
 const app = express();
 const PORT = process.env.PORT || 5000;
 const { initScheduler, getNextRunTime } = require("./scheduler");
-// Connect to MySQL
-connectDB();
 
-// Middleware
+// ============================================================
+// ✅ SECURITY MIDDLEWARE - MUST BE FIRST!
+// ============================================================
+
+// Block suspicious requests BEFORE anything else
+app.use((req, res, next) => {
+  const suspiciousPaths = [
+    ".env",
+    ".git",
+    "config.",
+    "wp-",
+    "phpinfo",
+    "server-status",
+    "actuator",
+    "graphql",
+    "swagger",
+    "openapi",
+    "admin",
+    "login",
+    "phpmyadmin",
+    ".ds_store",
+    ".htaccess",
+    ".htpasswd",
+    "robots.txt",
+    "sitemap.xml",
+  ];
+
+  // Check if request path contains any suspicious strings
+  const isSuspicious = suspiciousPaths.some((path) =>
+    req.path.toLowerCase().includes(path),
+  );
+
+  if (isSuspicious) {
+    console.log(
+      `🚫 Blocked suspicious request: ${req.method} ${req.path} from ${req.ip}`,
+    );
+    return res.status(404).json({
+      success: false,
+      error: "Not found",
+    });
+  }
+
+  next();
+});
+
+// ============================================================
+// CORS - Must come after security but before routes
+// ============================================================
+
 app.use(
   cors({
     origin: [
@@ -48,6 +94,10 @@ app.use((req, res, next) => {
   next();
 });
 
+// ============================================================
+// Static Files and Routes
+// ============================================================
+
 // Serve static files (uploaded images)
 app.use("/api/uploads", express.static(path.join(__dirname, "../uploads")));
 
@@ -57,7 +107,11 @@ app.use("/api/cart", cartRoutes);
 app.use("/api/loans", loanRoutes);
 app.use("/api/payments", paymentRoutes);
 app.use("/api/report", reportRoutes);
-// Health check with DB connection status s
+
+// ============================================================
+// Health Check
+// ============================================================
+
 app.get("/health", async (req, res) => {
   try {
     await pool.query("SELECT 1");
@@ -74,6 +128,10 @@ app.get("/health", async (req, res) => {
     });
   }
 });
+
+// ============================================================
+// 404 and Error Handlers (MUST BE LAST)
+// ============================================================
 
 // 404 handler
 app.use((req, res) => {
@@ -106,6 +164,10 @@ app.use((err, req, res, next) => {
   });
 });
 
+// ============================================================
+// Start Server
+// ============================================================
+
 // Initialize Scheduler AFTER server is ready
 let schedulerJob = null;
 
@@ -124,41 +186,7 @@ app.listen(PORT, () => {
     console.error("❌ Failed to initialize scheduler:", error);
   }
 });
-// Security middleware to block suspicious requests
-app.use((req, res, next) => {
-  const suspiciousPaths = [
-    ".env",
-    ".git",
-    "config.",
-    "wp-",
-    "phpinfo",
-    "server-status",
-    "actuator",
-    "graphql",
-    "swagger",
-    "openapi",
-    "admin",
-    "login",
-    "phpmyadmin",
-  ];
 
-  // Check if request path contains any suspicious strings
-  const isSuspicious = suspiciousPaths.some((path) =>
-    req.path.toLowerCase().includes(path),
-  );
-
-  if (isSuspicious) {
-    console.log(
-      `🚫 Blocked suspicious request: ${req.method} ${req.path} from ${req.ip}`,
-    );
-    return res.status(404).json({
-      success: false,
-      error: "Not found",
-    });
-  }
-
-  next();
-});
 // Graceful shutdown
 process.on("SIGINT", async () => {
   console.log("Closing database pool...");
