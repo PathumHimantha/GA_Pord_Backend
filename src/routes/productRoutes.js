@@ -196,7 +196,7 @@ router.put("/requests/:id", async (req, res) => {
               product.name,
               newStock,
               currentStock,
-              "request_fulfilled",
+              "add",
               `Fulfilled product request #${id}`,
             ],
           );
