@@ -826,7 +826,7 @@ router.put("/requests/:id", async (req, res) => {
     const request = currentRequest[0];
 
     // If status is being changed to 'fulfilled'
-    if (status === "fulfilled") {
+    if (status === "fulfilled" && request.status !== "fulfilled") {
       try {
         // Update stock using the stock management function
         const stockResult = await fulfillProductRequest(
