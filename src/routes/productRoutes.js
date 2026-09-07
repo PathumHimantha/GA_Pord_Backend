@@ -798,4 +798,37 @@ router.get("/requests", async (req, res) => {
     res.status(500).json({ success: false, error: error.message });
   }
 });
+router.put("/requests/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status",
+      });
+    }
+
+    const result = await executeWithRetry(
+      `UPDATE product_requests SET status = ?, notes = CONCAT(COALESCE(notes, ''), ' | ', ?) WHERE id = ?`,
+      [status, notes || `Status updated to ${status}`, id],
+    );
+
+    if (result.affectedRows === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Request not found",
+      });
+    }
+
+    res.json({
+      success: true,
+      message: `Request ${status} successfully`,
+    });
+  } catch (error) {
+    console.error("Error updating product request:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
 module.exports = router;
