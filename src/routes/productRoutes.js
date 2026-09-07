@@ -809,7 +809,7 @@ router.put("/requests/:id", async (req, res) => {
         error: "Invalid status",
       });
     }
-
+    console.log(`update product request ID: ${id}`);
     // Get the request first to check current status
     const currentRequest = await executeWithRetry(
       `SELECT id, product_id, product_name, status FROM product_requests WHERE id = ?`,
