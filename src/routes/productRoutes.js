@@ -605,4 +605,152 @@ router.get("/stock-transactions", async (req, res) => {
     });
   }
 });
+
+// POST - Request a product (when out of stock)
+router.post("/request", async (req, res) => {
+  try {
+    const { product_id, requested_by, requested_by_id, notes } = req.body;
+
+    if (!product_id || !requested_by || !requested_by_id) {
+      return res.status(400).json({
+        success: false,
+        error: "product_id, requested_by, and requested_by_id are required",
+      });
+    }
+
+    // Get product details
+    const productResult = await executeWithRetry(
+      "SELECT id, product_id as product_code, name, price FROM products WHERE id = ?",
+      [product_id],
+    );
+
+    if (!productResult || productResult.length === 0) {
+      return res.status(404).json({
+        success: false,
+        error: "Product not found",
+      });
+    }
+
+    const product = productResult[0];
+
+    // Check if there's already a pending request for this product by this user
+    const existingRequest = await executeWithRetry(
+      `SELECT id, status FROM product_requests 
+       WHERE product_id = ? AND requested_by_id = ? AND status = 'pending'`,
+      [product_id, requested_by_id],
+    );
+
+    if (existingRequest && existingRequest.length > 0) {
+      return res.status(400).json({
+        success: false,
+        error: "You already have a pending request for this product",
+      });
+    }
+
+    // Create the request
+    const result = await executeWithRetry(
+      `INSERT INTO product_requests 
+       (product_id, product_name, product_code, price, requested_by, requested_by_id, notes) 
+       VALUES (?, ?, ?, ?, ?, ?, ?)`,
+      [
+        product_id,
+        product.name,
+        product.product_code,
+        product.price,
+        requested_by,
+        requested_by_id,
+        notes || null,
+      ],
+    );
+
+    res.json({
+      success: true,
+      message: "Product request submitted successfully",
+      data: {
+        id: result.insertId,
+        product_id,
+        product_name: product.name,
+        requested_by,
+        requested_by_id,
+      },
+    });
+  } catch (error) {
+    console.error("Error creating product request:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// GET - Get all product requests (for admin view)
+router.get("/requests", async (req, res) => {
+  try {
+    const { status, page = 1, limit = 50 } = req.query;
+
+    let query = `SELECT * FROM product_requests`;
+    const params = [];
+
+    if (status) {
+      query += ` WHERE status = ?`;
+      params.push(status);
+    }
+
+    query += ` ORDER BY created_at DESC LIMIT ? OFFSET ?`;
+    params.push(parseInt(limit), (parseInt(page) - 1) * parseInt(limit));
+
+    const results = await executeWithRetry(query, params);
+
+    // Get total count
+    let countQuery = `SELECT COUNT(*) as total FROM product_requests`;
+    if (status) {
+      countQuery += ` WHERE status = ?`;
+    }
+    const countResult = await executeWithRetry(
+      countQuery,
+      status ? [status] : [],
+    );
+    const total = countResult[0]?.total || 0;
+
+    res.json({
+      success: true,
+      data: results,
+      pagination: {
+        total,
+        page: parseInt(page),
+        limit: parseInt(limit),
+        totalPages: Math.ceil(total / parseInt(limit)),
+      },
+    });
+  } catch (error) {
+    console.error("Error fetching product requests:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// PUT - Update request status (admin)
+router.put("/requests/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status, notes } = req.body;
+
+    if (!["pending", "approved", "rejected", "fulfilled"].includes(status)) {
+      return res.status(400).json({
+        success: false,
+        error: "Invalid status",
+      });
+    }
+
+    await executeWithRetry(
+      `UPDATE product_requests SET status = ?, notes = CONCAT(COALESCE(notes, ''), ' | ', ?) WHERE id = ?`,
+      [status, notes || `Status updated to ${status}`, id],
+    );
+
+    res.json({
+      success: true,
+      message: `Request ${status} successfully`,
+    });
+  } catch (error) {
+    console.error("Error updating product request:", error);
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
 module.exports = router;
